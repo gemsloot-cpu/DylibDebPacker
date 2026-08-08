@@ -1,0 +1,308 @@
+import Foundation
+import SwiftUI
+
+@MainActor
+final class LibraryStore: ObservableObject {
+    @Published var plugins: [PluginFile] = []
+    @Published var sources: [RepoSource] = []
+    @Published var repoPackages: [RepoPackage] = []
+    @Published var selectedPluginIDs: Set<UUID> = []
+    @Published var settings = PackageSettings()
+    @Published var status = "Ready"
+    @Published var generatedDebURL: URL?
+    @Published var isBusy = false
+
+    private let fileManager = FileManager.default
+
+    init() {
+        load()
+    }
+
+    var selectedPlugins: [PluginFile] {
+        plugins.filter { selectedPluginIDs.contains($0.id) }
+    }
+
+    func documentsURL() throws -> URL {
+        try fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    }
+
+    func pluginsURL() throws -> URL {
+        let url = try documentsURL().appendingPathComponent("Plugins", isDirectory: true)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    func stateURL() throws -> URL {
+        try documentsURL().appendingPathComponent("state.json")
+    }
+
+    func load() {
+        do {
+            let url = try stateURL()
+            guard fileManager.fileExists(atPath: url.path) else { return }
+            let state = try JSONDecoder().decode(PersistedState.self, from: Data(contentsOf: url))
+            plugins = state.plugins
+            sources = state.sources
+            settings = state.settings
+            selectedPluginIDs = Set(state.plugins.map(\.id))
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    func save() {
+        do {
+            let state = PersistedState(plugins: plugins, sources: sources, settings: settings)
+            let data = try JSONEncoder.pretty.encode(state)
+            try data.write(to: try stateURL(), options: .atomic)
+        } catch {
+            status = error.localizedDescription
+        }
+    }
+
+    func importFiles(_ urls: [URL]) {
+        Task {
+            await runBusy("Importing") {
+                for url in urls {
+                    try await self.importFile(url)
+                }
+                self.save()
+                self.status = "Imported \(urls.count) file(s)"
+            }
+        }
+    }
+
+    func importFile(_ url: URL) async throws {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        let lower = url.pathExtension.lowercased()
+        if lower == "dylib" {
+            try copyDylib(from: url, source: "Imported")
+        } else if lower == "deb" {
+            let extracted = try DebExtractor.extractDylibs(from: url)
+            for item in extracted {
+                try addDylibData(item.data, fileName: item.name, source: url.lastPathComponent)
+            }
+        } else {
+            throw AppError.unsupportedArchive(url.lastPathComponent)
+        }
+    }
+
+    func addSource(urlText: String) {
+        guard var components = URLComponents(string: urlText.trimmingCharacters(in: .whitespacesAndNewlines)),
+              components.scheme != nil,
+              let url = components.url else {
+            status = AppError.invalidURL.localizedDescription
+            return
+        }
+        components.path = components.path.ensureTrailingSlash()
+        let normalized = (components.url ?? url).absoluteString.ensureTrailingSlash()
+        let name = URL(string: normalized)?.host ?? "Source"
+        if !sources.contains(where: { $0.url == normalized }) {
+            sources.append(RepoSource(name: name, url: normalized))
+            save()
+        }
+        refreshSources()
+    }
+
+    func removeSource(_ source: RepoSource) {
+        sources.removeAll { $0.id == source.id }
+        repoPackages.removeAll { $0.sourceID == source.id }
+        save()
+    }
+
+    func refreshSources() {
+        Task {
+            await runBusy("Refreshing sources") {
+                var packages: [RepoPackage] = []
+                for source in self.sources {
+                    packages.append(contentsOf: try await RepoClient.fetchPackages(from: source))
+                }
+                self.repoPackages = packages.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                self.status = "Loaded \(packages.count) package(s)"
+            }
+        }
+    }
+
+    func download(_ package: RepoPackage) {
+        Task {
+            await runBusy("Downloading \(package.name)") {
+                guard let url = package.downloadURL else { throw AppError.invalidURL }
+                let (tempURL, _) = try await URLSession.shared.download(from: url)
+                let extracted = try DebExtractor.extractDylibs(from: tempURL)
+                for item in extracted {
+                    try self.addDylibData(item.data, fileName: item.name, source: package.name)
+                }
+                self.save()
+                self.status = "Extracted \(extracted.count) dylib(s) from \(package.name)"
+            }
+        }
+    }
+
+    func buildDeb() {
+        Task {
+            await runBusy("Building deb") {
+                let output = try DebBuilder.build(plugins: self.selectedPlugins, baseURL: try self.documentsURL(), settings: self.settings)
+                self.generatedDebURL = output
+                self.save()
+                self.status = "Built \(output.lastPathComponent)"
+            }
+        }
+    }
+
+    func toggleSelection(_ plugin: PluginFile) {
+        if selectedPluginIDs.contains(plugin.id) {
+            selectedPluginIDs.remove(plugin.id)
+        } else {
+            selectedPluginIDs.insert(plugin.id)
+        }
+    }
+
+    func deletePlugins(at offsets: IndexSet) {
+        for index in offsets {
+            let plugin = plugins[index]
+            if let url = try? documentsURL().appendingPathComponent(plugin.relativePath) {
+                try? fileManager.removeItem(at: url)
+            }
+            selectedPluginIDs.remove(plugin.id)
+        }
+        plugins.remove(atOffsets: offsets)
+        save()
+    }
+
+    func update(plugin: PluginFile) {
+        guard let index = plugins.firstIndex(where: { $0.id == plugin.id }) else { return }
+        plugins[index] = plugin
+        save()
+    }
+
+    private func copyDylib(from url: URL, source: String) throws {
+        try addDylibData(Data(contentsOf: url), fileName: url.lastPathComponent, source: source)
+    }
+
+    private func addDylibData(_ data: Data, fileName: String, source: String) throws {
+        let cleanName = fileName.hasSuffix(".dylib") ? fileName.sanitizedFileComponent : "\(fileName).dylib".sanitizedFileComponent
+        let unique = uniqueFileName(cleanName, in: try pluginsURL())
+        let destination = try pluginsURL().appendingPathComponent(unique)
+        try data.write(to: destination, options: .atomic)
+        var plugin = PluginFile(displayName: String(unique.dropLast(6)), fileName: unique, relativePath: "Plugins/\(unique)", source: source)
+        inferFilter(for: &plugin)
+        plugins.append(plugin)
+        selectedPluginIDs.insert(plugin.id)
+    }
+
+    private func uniqueFileName(_ name: String, in directory: URL) -> String {
+        var candidate = name
+        let base = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+        let ext = URL(fileURLWithPath: name).pathExtension
+        var index = 2
+        while fileManager.fileExists(atPath: directory.appendingPathComponent(candidate).path) {
+            candidate = "\(base)-\(index).\(ext)"
+            index += 1
+        }
+        return candidate
+    }
+
+    private func inferFilter(for plugin: inout PluginFile) {
+        let key = plugin.debName.lowercased()
+        let bundles: [String: String] = [
+            "fengchao": "com.fcbox.hiveconsumer",
+            "cainiao": "com.cainiao.cnwireless",
+            "lolmobile": "com.tencent.ied.app.lolbible",
+            "chinamobilecloud": "com.chinamobile.mcloud",
+            "chinaradio": "com.cbn.app",
+            "qqmusic": "com.tencent.QQMusic",
+            "xiaohongshu": "com.xingin.discover",
+            "douyin": "com.ss.iphone.ugc.Aweme",
+            "wcallrecorder": "com.tencent.xin",
+            "weapphelper": "com.tencent.xin"
+        ]
+        if key == "zhiyuanhui" {
+            plugin.filterKind = .executable
+            plugin.filterValue = "Volunteer"
+            return
+        }
+        if let value = bundles[key] {
+            plugin.filterKind = .bundle
+            plugin.filterValue = value
+        }
+    }
+
+    private func runBusy(_ label: String, _ work: @escaping () async throws -> Void) async {
+        isBusy = true
+        status = label
+        do {
+            try await work()
+        } catch {
+            status = error.localizedDescription
+        }
+        isBusy = false
+    }
+}
+
+enum RepoClient {
+    static func fetchPackages(from source: RepoSource) async throws -> [RepoPackage] {
+        guard let baseURL = URL(string: source.url.ensureTrailingSlash()) else { throw AppError.invalidURL }
+        let packageLists = ["Packages", "Packages.gz"]
+
+        for name in packageLists {
+            let url = baseURL.appendingPathComponent(name)
+            if let data = try? await fetch(url), !data.isEmpty {
+                let textData = name.hasSuffix(".gz") ? (try? GzipCodec.decompress(data)) ?? data : data
+                if let text = String(data: textData, encoding: .utf8) {
+                    return parsePackages(text, source: source)
+                }
+            }
+        }
+        return []
+    }
+
+    private static func fetch(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return Data()
+        }
+        return data
+    }
+
+    private static func parsePackages(_ text: String, source: RepoSource) -> [RepoPackage] {
+        text.components(separatedBy: "\n\n").compactMap { stanza in
+            var fields: [String: String] = [:]
+            var currentKey: String?
+            for line in stanza.components(separatedBy: .newlines) {
+                if line.hasPrefix(" "), let key = currentKey {
+                    fields[key, default: ""] += "\n" + line.trimmingCharacters(in: .whitespaces)
+                    continue
+                }
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                let key = String(line[..<colon])
+                let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                fields[key] = value
+                currentKey = key
+            }
+            guard let package = fields["Package"], let filename = fields["Filename"] else { return nil }
+            return RepoPackage(
+                sourceID: source.id,
+                sourceName: source.name,
+                baseURL: source.url,
+                package: package,
+                name: fields["Name"] ?? package,
+                version: fields["Version"] ?? "",
+                architecture: fields["Architecture"] ?? "",
+                filename: filename,
+                description: fields["Description"] ?? ""
+            )
+        }
+    }
+}
+
+private extension JSONEncoder {
+    static var pretty: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
+}
