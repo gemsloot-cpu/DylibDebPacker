@@ -4,16 +4,19 @@ import SwiftUI
 @MainActor
 final class LibraryStore: ObservableObject {
     @Published var plugins: [PluginFile] = []
+    @Published var downloadedDebs: [LocalDebPackage] = []
     @Published var sources: [RepoSource] = []
     @Published var repoPackages: [RepoPackage] = []
     @Published var sourceMessages: [UUID: String] = [:]
     @Published var selectedPluginIDs: Set<UUID> = []
     @Published var settings = PackageSettings()
+    @Published var statusVisible = false
     @Published var status = "就绪"
     @Published var generatedDebURL: URL?
     @Published var isBusy = false
 
     private let fileManager = FileManager.default
+    private var statusHideTask: Task<Void, Never>?
 
     init() {
         load()
@@ -33,6 +36,12 @@ final class LibraryStore: ObservableObject {
         return url
     }
 
+    func debsURL() throws -> URL {
+        let url = try documentsURL().appendingPathComponent("Debs", isDirectory: true)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     func stateURL() throws -> URL {
         try documentsURL().appendingPathComponent("state.json")
     }
@@ -43,21 +52,27 @@ final class LibraryStore: ObservableObject {
             guard fileManager.fileExists(atPath: url.path) else { return }
             let state = try JSONDecoder().decode(PersistedState.self, from: Data(contentsOf: url))
             plugins = state.plugins
+            downloadedDebs = state.downloadedDebs
             sources = state.sources
             settings = state.settings
             selectedPluginIDs = Set(state.plugins.map(\.id))
         } catch {
-            status = error.localizedDescription
+            showStatus(error.localizedDescription, duration: 4)
         }
     }
 
     func save() {
         do {
-            let state = PersistedState(plugins: plugins, sources: sources, settings: settings)
+            let state = PersistedState(
+                plugins: plugins,
+                sources: sources,
+                downloadedDebs: downloadedDebs,
+                settings: settings
+            )
             let data = try JSONEncoder.pretty.encode(state)
             try data.write(to: try stateURL(), options: .atomic)
         } catch {
-            status = error.localizedDescription
+            showStatus(error.localizedDescription, duration: 4)
         }
     }
 
@@ -70,7 +85,7 @@ final class LibraryStore: ObservableObject {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let data = try? Data(contentsOf: url) else {
-                status = "无法读取 \(url.lastPathComponent)"
+                showStatus("无法读取 \(url.lastPathComponent)", duration: 4)
                 return
             }
             items.append((url.lastPathComponent, data))
@@ -82,7 +97,7 @@ final class LibraryStore: ObservableObject {
                     try await self.importFileData(item.data, fileName: item.fileName)
                 }
                 self.save()
-                self.status = "已导入 \(items.count) 个文件"
+                self.showStatus("已导入 \(items.count) 个文件")
             }
         }
     }
@@ -92,19 +107,40 @@ final class LibraryStore: ObservableObject {
         if lower == "dylib" {
             try addDylibData(data, fileName: fileName, source: "Imported")
         } else if lower == "deb" {
-            let extracted = try DebExtractor.extractDylibs(from: data)
-            for item in extracted {
-                try addDylibData(item.data, fileName: item.name, source: fileName, filter: item.filter)
-            }
+            _ = try addDebData(
+                data,
+                fileName: fileName,
+                packageID: URL(fileURLWithPath: fileName).deletingPathExtension().lastPathComponent,
+                version: "",
+                source: "Imported"
+            )
         } else {
             throw AppError.unsupportedArchive(fileName)
+        }
+    }
+
+    func extractDylibs(from deb: LocalDebPackage) throws -> [ExtractedDylib] {
+        let url = try documentsURL().appendingPathComponent(deb.relativePath)
+        return try DebExtractor.extractDylibs(from: Data(contentsOf: url))
+    }
+
+    func saveExtractedDylibs(_ items: [ExtractedDylib], from deb: LocalDebPackage) {
+        guard !items.isEmpty else { return }
+        Task {
+            await runBusy("保存插件") {
+                for item in items {
+                    try self.addDylibData(item.data, fileName: item.name, source: deb.displayName, filter: item.filter)
+                }
+                self.save()
+                self.showStatus("已保存 \(items.count) 个插件")
+            }
         }
     }
 
     func addSource(urlText: String) {
         let count = addSources(from: urlText, refresh: true)
         if count == 0 {
-            status = AppError.invalidURL.localizedDescription
+            showStatus(AppError.invalidURL.localizedDescription, duration: 4)
         }
     }
 
@@ -119,7 +155,7 @@ final class LibraryStore: ObservableObject {
         }
         if added > 0 {
             save()
-            status = "已添加 \(added) 个源"
+            showStatus("已添加 \(added) 个源")
             if refresh { refreshSources() }
         }
         return added
@@ -146,7 +182,7 @@ final class LibraryStore: ObservableObject {
                     }
                 }
                 self.repoPackages = packages.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                self.status = "已读取 \(packages.count) 个插件包"
+                self.showStatus("已读取 \(packages.count) 个插件包")
             }
         }
     }
@@ -156,14 +192,26 @@ final class LibraryStore: ObservableObject {
             await runBusy("下载 \(package.name)") {
                 guard let url = package.downloadURL else { throw AppError.invalidURL }
                 let (tempURL, _) = try await URLSession.shared.download(from: url)
-                let extracted = try DebExtractor.extractDylibs(from: Data(contentsOf: tempURL))
-                for item in extracted {
-                    try self.addDylibData(item.data, fileName: item.name, source: package.name, filter: item.filter)
-                }
+                let data = try Data(contentsOf: tempURL)
+                _ = try self.addDebData(
+                    data,
+                    fileName: package.downloadURL?.lastPathComponent ?? "\(package.package).deb",
+                    packageID: package.package,
+                    version: package.version,
+                    source: package.sourceName
+                )
                 self.save()
-                self.status = "已从 \(package.name) 提取 \(extracted.count) 个 dylib"
+                self.showStatus("已保存 \(package.name).deb")
             }
         }
+    }
+
+    func deleteDeb(_ deb: LocalDebPackage) {
+        if let url = try? documentsURL().appendingPathComponent(deb.relativePath) {
+            try? fileManager.removeItem(at: url)
+        }
+        downloadedDebs.removeAll { $0.id == deb.id }
+        save()
     }
 
     func buildDeb() {
@@ -172,7 +220,7 @@ final class LibraryStore: ObservableObject {
                 let output = try DebBuilder.build(plugins: self.selectedPlugins, baseURL: try self.documentsURL(), settings: self.settings)
                 self.generatedDebURL = output
                 self.save()
-                self.status = "已生成 \(output.lastPathComponent)"
+                self.showStatus("已生成 \(output.lastPathComponent)")
             }
         }
     }
@@ -183,6 +231,14 @@ final class LibraryStore: ObservableObject {
         } else {
             selectedPluginIDs.insert(plugin.id)
         }
+    }
+
+    func selectAllPlugins() {
+        selectedPluginIDs = Set(plugins.map(\.id))
+    }
+
+    func clearPluginSelection() {
+        selectedPluginIDs.removeAll()
     }
 
     func deletePlugins(at offsets: IndexSet) {
@@ -201,6 +257,33 @@ final class LibraryStore: ObservableObject {
         guard let index = plugins.firstIndex(where: { $0.id == plugin.id }) else { return }
         plugins[index] = plugin
         save()
+    }
+
+    private func addDebData(
+        _ data: Data,
+        fileName: String,
+        packageID: String,
+        version: String,
+        source: String
+    ) throws -> LocalDebPackage {
+        let cleanName = fileName.lowercased().hasSuffix(".deb")
+            ? fileName.sanitizedFileComponent
+            : "\(fileName).deb".sanitizedFileComponent
+        let directory = try debsURL()
+        let unique = uniqueFileName(cleanName, in: directory)
+        let destination = directory.appendingPathComponent(unique)
+        try data.write(to: destination, options: .atomic)
+
+        let deb = LocalDebPackage(
+            displayName: URL(fileURLWithPath: unique).deletingPathExtension().lastPathComponent,
+            fileName: unique,
+            packageID: packageID,
+            version: version,
+            source: source,
+            relativePath: "Debs/\(unique)"
+        )
+        downloadedDebs.insert(deb, at: 0)
+        return deb
     }
 
     private func addDylibData(
@@ -260,13 +343,27 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    func showStatus(_ message: String, duration: TimeInterval = 2.8) {
+        statusHideTask?.cancel()
+        status = message
+        statusVisible = true
+
+        guard duration > 0 else { return }
+        statusHideTask = Task { [weak self] in
+            let nanoseconds = UInt64(duration * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            self?.statusVisible = false
+        }
+    }
+
     private func runBusy(_ label: String, _ work: @escaping () async throws -> Void) async {
         isBusy = true
-        status = label
+        showStatus(label, duration: 0)
         do {
             try await work()
         } catch {
-            status = error.localizedDescription
+            showStatus(error.localizedDescription, duration: 4)
         }
         isBusy = false
     }

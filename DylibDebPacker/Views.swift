@@ -16,11 +16,26 @@ struct ContentView: View {
         }
         .tint(.blue)
         .safeAreaInset(edge: .top) {
-            if store.isBusy || store.status != "就绪" {
+            if store.isBusy || store.statusVisible {
                 StatusToast(text: store.status, busy: store.isBusy)
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
                     .padding(.bottom, 2)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil,
+                        from: nil,
+                        for: nil
+                    )
+                } label: {
+                    Label("收起键盘", systemImage: "keyboard.chevron.compact.down")
+                }
             }
         }
     }
@@ -163,11 +178,11 @@ struct SourcesView: View {
 
     private func pasteSourcesFromClipboard() {
         guard let text = UIPasteboard.general.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            store.status = "剪贴板没有文本"
+            store.showStatus("剪贴板没有文本", duration: 4)
             return
         }
         let count = store.addSources(from: text, refresh: true)
-        if count == 0 { store.status = "剪贴板里没有识别到源链接" }
+        if count == 0 { store.showStatus("剪贴板里没有识别到源链接", duration: 4) }
     }
 }
 
@@ -237,6 +252,7 @@ struct PackageDownloadRow: View {
 struct LibraryView: View {
     @EnvironmentObject private var store: LibraryStore
     @State private var showingDocumentPicker = false
+    @State private var selectedDeb: LocalDebPackage?
 
     var body: some View {
         NavigationView {
@@ -248,7 +264,45 @@ struct LibraryView: View {
                         Label("导入 dylib 或 deb", systemImage: "doc.badge.plus")
                     }
                 } footer: {
-                    Text("导入 deb 时会尝试提取里面的 dylib，再放入插件库。")
+                    Text("导入 deb 会先保存原包；点击下方 deb 后，再选择需要提取的 dylib。")
+                }
+
+                Section("已下载 deb") {
+                    if store.downloadedDebs.isEmpty {
+                        EmptyHint(title: "还没有 deb", subtitle: "从越狱源下载，或导入本地 deb。")
+                    } else {
+                        ForEach(store.downloadedDebs) { deb in
+                            Button {
+                                selectedDeb = deb
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "doc.zipper")
+                                        .foregroundStyle(.blue)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(deb.displayName)
+                                            .font(.headline)
+                                        Text([deb.packageID, deb.version].filter { !$0.isEmpty }.joined(separator: "  "))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(deb.source)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    store.deleteDeb(deb)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Section("插件库") {
@@ -272,7 +326,121 @@ struct LibraryView: View {
                     showingDocumentPicker = false
                 }
             }
+            .sheet(item: $selectedDeb) { deb in
+                DebContentsView(deb: deb)
+            }
         }
+    }
+}
+
+struct DebContentsView: View {
+    @EnvironmentObject private var store: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    let deb: LocalDebPackage
+
+    @State private var dylibs: [ExtractedDylib] = []
+    @State private var selectedDylibIDs: Set<String> = []
+    @State private var isLoading = true
+    @State private var errorMessage = ""
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    HStack {
+                        Text("已选 \(selectedDylibIDs.count) / \(dylibs.count)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            selectedDylibIDs = Set(dylibs.map(\.id))
+                        } label: {
+                            Label("全选", systemImage: "checkmark.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        Button {
+                            selectedDylibIDs.removeAll()
+                        } label: {
+                            Label("全不选", systemImage: "circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                Section("deb 内的 dylib") {
+                    if isLoading {
+                        ProgressView("正在读取 deb…")
+                    } else if !errorMessage.isEmpty {
+                        EmptyHint(title: "读取失败", subtitle: errorMessage)
+                    } else if dylibs.isEmpty {
+                        EmptyHint(title: "没有找到 dylib", subtitle: "这个 deb 可能不是注入插件包。")
+                    } else {
+                        ForEach(dylibs) { dylib in
+                            Button {
+                                toggleDylib(dylib)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: selectedDylibIDs.contains(dylib.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(selectedDylibIDs.contains(dylib.id) ? .green : .secondary)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(dylib.name)
+                                        if let filter = dylib.filter {
+                                            Text("\(filter.kind.label): \(filter.value)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        } else {
+                                            Text("缺少注入目标")
+                                                .font(.caption)
+                                                .foregroundStyle(.red)
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(deb.displayName)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        let selected = dylibs.filter { selectedDylibIDs.contains($0.id) }
+                        store.saveExtractedDylibs(selected, from: deb)
+                        dismiss()
+                    } label: {
+                        Label("保存插件", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(selectedDylibIDs.isEmpty || isLoading || !errorMessage.isEmpty)
+                }
+            }
+            .task {
+                loadDylibs()
+            }
+        }
+    }
+
+    private func toggleDylib(_ dylib: ExtractedDylib) {
+        if selectedDylibIDs.contains(dylib.id) {
+            selectedDylibIDs.remove(dylib.id)
+        } else {
+            selectedDylibIDs.insert(dylib.id)
+        }
+    }
+
+    private func loadDylibs() {
+        do {
+            let items = try store.extractDylibs(from: deb)
+            dylibs = items
+            selectedDylibIDs = Set(items.map(\.id))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 }
 
@@ -361,6 +529,25 @@ struct PackageView: View {
                     if store.plugins.isEmpty {
                         EmptyHint(title: "没有可打包插件", subtitle: "去插件库导入，或从源里下载 deb 提取。")
                     } else {
+                        HStack {
+                            Text("已选 \(store.selectedPlugins.count) / \(store.plugins.count)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                store.selectAllPlugins()
+                            } label: {
+                                Label("全选", systemImage: "checkmark.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            Button {
+                                store.clearPluginSelection()
+                            } label: {
+                                Label("全不选", systemImage: "circle")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
                         ForEach(store.plugins) { plugin in
                             Button {
                                 store.toggleSelection(plugin)

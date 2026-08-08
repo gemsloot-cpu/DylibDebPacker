@@ -14,10 +14,12 @@ enum FilterKind: String, Codable, CaseIterable, Identifiable, Equatable {
     }
 }
 
-struct ExtractedDylib {
+struct ExtractedDylib: Identifiable {
     let name: String
     let data: Data
     let filter: InjectionFilter?
+
+    var id: String { name }
 }
 
 struct InjectionFilter {
@@ -68,6 +70,17 @@ struct RepoPackage: Identifiable, Codable, Hashable {
     }
 }
 
+struct LocalDebPackage: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var displayName: String
+    var fileName: String
+    var packageID: String
+    var version: String
+    var source: String
+    var relativePath: String
+    var addedAt = Date()
+}
+
 struct PackageSettings: Codable, Equatable {
     var packageID = "com.local.custom-dylibs"
     var name = "自选 dylib 插件包"
@@ -80,7 +93,28 @@ struct PackageSettings: Codable, Equatable {
 struct PersistedState: Codable {
     var plugins: [PluginFile] = []
     var sources: [RepoSource] = []
+    var downloadedDebs: [LocalDebPackage] = []
     var settings = PackageSettings()
+
+    init(
+        plugins: [PluginFile] = [],
+        sources: [RepoSource] = [],
+        downloadedDebs: [LocalDebPackage] = [],
+        settings: PackageSettings = PackageSettings()
+    ) {
+        self.plugins = plugins
+        self.sources = sources
+        self.downloadedDebs = downloadedDebs
+        self.settings = settings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        plugins = try container.decodeIfPresent([PluginFile].self, forKey: .plugins) ?? []
+        sources = try container.decodeIfPresent([RepoSource].self, forKey: .sources) ?? []
+        downloadedDebs = try container.decodeIfPresent([LocalDebPackage].self, forKey: .downloadedDebs) ?? []
+        settings = try container.decodeIfPresent(PackageSettings.self, forKey: .settings) ?? PackageSettings()
+    }
 }
 
 enum AppError: LocalizedError {
