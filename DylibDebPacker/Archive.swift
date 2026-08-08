@@ -244,8 +244,8 @@ enum DebBuilder {
 }
 
 enum DebExtractor {
-    static func extractDylibs(from debURL: URL) throws -> [(name: String, data: Data)] {
-        let entries = try ArArchive.read(Data(contentsOf: debURL))
+    static func extractDylibs(from data: Data) throws -> [(name: String, data: Data)] {
+        let entries = try ArArchive.read(data)
         guard let payload = entries.first(where: { $0.name == "data.tar.gz" || $0.name == "data.tar" }) else {
             let names = entries.map(\.name).joined(separator: ", ")
             if names.contains("data.tar.xz") { throw AppError.unsupportedArchive("data.tar.xz") }
