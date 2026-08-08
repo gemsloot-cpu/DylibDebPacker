@@ -51,6 +51,18 @@ struct SourcesView: View {
     @State private var sourceURL = ""
     @State private var showingBatchPaste = false
     @State private var batchText = ""
+    @State private var packageSearch = ""
+
+    private var filteredPackages: [RepoPackage] {
+        let query = packageSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return store.repoPackages }
+        return store.repoPackages.filter {
+            $0.name.localizedCaseInsensitiveContains(query) ||
+            $0.package.localizedCaseInsensitiveContains(query) ||
+            $0.description.localizedCaseInsensitiveContains(query) ||
+            $0.sourceName.localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
         NavigationView {
@@ -117,7 +129,7 @@ struct SourcesView: View {
                     if store.repoPackages.isEmpty {
                         EmptyHint(title: "暂无插件包", subtitle: "添加源后点右上角刷新。")
                     } else {
-                        ForEach(store.repoPackages) { package in
+                        ForEach(filteredPackages) { package in
                             PackageDownloadRow(package: package) {
                                 store.download(package)
                             }
@@ -125,6 +137,11 @@ struct SourcesView: View {
                     }
                 }
             }
+            .searchable(
+                text: $packageSearch,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "搜索插件名、包名或源"
+            )
             .navigationTitle("越狱源")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -219,14 +236,14 @@ struct PackageDownloadRow: View {
 
 struct LibraryView: View {
     @EnvironmentObject private var store: LibraryStore
-    @State private var importing = false
+    @State private var showingDocumentPicker = false
 
     var body: some View {
         NavigationView {
             List {
                 Section {
                     Button {
-                        importing = true
+                        showingDocumentPicker = true
                     } label: {
                         Label("导入 dylib 或 deb", systemImage: "doc.badge.plus")
                     }
@@ -249,18 +266,46 @@ struct LibraryView: View {
                 }
             }
             .navigationTitle("插件库")
-            .fileImporter(isPresented: $importing, allowedContentTypes: importTypes, allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result {
+            .sheet(isPresented: $showingDocumentPicker) {
+                DylibDocumentPicker { urls in
                     store.importFiles(urls)
-                } else if case .failure(let error) = result {
-                    store.status = error.localizedDescription
+                    showingDocumentPicker = false
                 }
             }
         }
     }
+}
 
-    private var importTypes: [UTType] {
-        [.item, UTType(filenameExtension: "dylib")!, UTType(filenameExtension: "deb")!]
+struct DylibDocumentPicker: UIViewControllerRepresentable {
+    let onPick: ([URL]) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types = [
+            UTType(filenameExtension: "dylib")!,
+            UTType(filenameExtension: "deb")!
+        ]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: ([URL]) -> Void
+
+        init(onPick: @escaping ([URL]) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onPick(urls)
+        }
     }
 }
 

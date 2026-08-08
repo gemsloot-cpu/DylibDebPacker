@@ -260,7 +260,7 @@ enum DebBuilder {
 }
 
 enum DebExtractor {
-    static func extractDylibs(from data: Data) throws -> [(name: String, data: Data)] {
+    static func extractDylibs(from data: Data) throws -> [ExtractedDylib] {
         let entries = try ArArchive.read(data)
         guard let payload = entries.first(where: {
             let name = $0.name.lowercased()
@@ -273,10 +273,91 @@ enum DebExtractor {
         }
 
         let tarData = payload.name.lowercased().hasSuffix(".gz") ? try GzipCodec.decompress(payload.data) : payload.data
-        let dylibs = TarArchive.files(from: tarData)
-            .filter { $0.path.hasSuffix(".dylib") }
-            .map { (URL(fileURLWithPath: $0.path).lastPathComponent, $0.data) }
+        let files = TarArchive.files(from: tarData)
+        let plistsByBaseName = Dictionary(
+            files
+                .filter { $0.path.lowercased().hasSuffix(".plist") }
+                .map {
+                    (
+                        URL(fileURLWithPath: $0.path).deletingPathExtension().lastPathComponent.lowercased(),
+                        $0.data
+                    )
+                },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let dylibs = files
+            .filter { $0.path.lowercased().hasSuffix(".dylib") }
+            .map { file -> ExtractedDylib in
+                let name = URL(fileURLWithPath: file.path).lastPathComponent
+                let baseName = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent.lowercased()
+                return ExtractedDylib(
+                    name: name,
+                    data: file.data,
+                    filter: plistsByBaseName[baseName].flatMap(InjectionFilterParser.parse)
+                )
+            }
         guard !dylibs.isEmpty else { throw AppError.noDylibsFound }
         return dylibs
+    }
+}
+
+enum InjectionFilterParser {
+    static func parse(_ data: Data) -> InjectionFilter? {
+        if let propertyList = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+           let root = propertyList as? [String: Any],
+           let filter = root["Filter"] as? [String: Any] {
+            if let value = firstString(in: filter["Bundles"]) {
+                return InjectionFilter(kind: .bundle, value: value)
+            }
+            if let value = firstString(in: filter["Executables"]) {
+                return InjectionFilter(kind: .executable, value: value)
+            }
+        }
+
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        if let value = firstOpenStepValue(named: "Bundles", in: text) {
+            return InjectionFilter(kind: .bundle, value: value)
+        }
+        if let value = firstOpenStepValue(named: "Executables", in: text) {
+            return InjectionFilter(kind: .executable, value: value)
+        }
+        return nil
+    }
+
+    private static func firstString(in value: Any?) -> String? {
+        if let values = value as? [String] {
+            return values.first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        }
+        if let value = value as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return value
+        }
+        return nil
+    }
+
+    private static func firstOpenStepValue(named key: String, in text: String) -> String? {
+        let escapedKey = NSRegularExpression.escapedPattern(for: key)
+        let pattern = "\\b\(escapedKey)\\s*=\\s*\\(([\\s\\S]*?)\\)"
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = expression.firstMatch(in: text, range: range),
+              let valuesRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+
+        let values = String(text[valuesRange])
+        let quotedPattern = #""([^"]+)""#
+        if let quotedExpression = try? NSRegularExpression(pattern: quotedPattern),
+           let quotedMatch = quotedExpression.firstMatch(
+                in: values,
+                range: NSRange(values.startIndex..<values.endIndex, in: values)
+           ),
+           let valueRange = Range(quotedMatch.range(at: 1), in: values) {
+            return String(values[valueRange])
+        }
+
+        return values
+            .split(whereSeparator: { $0 == "," || $0 == ";" || $0.isWhitespace || $0 == "\n" })
+            .map(String.init)
+            .first(where: { !$0.isEmpty && $0 != "\"\"" })
     }
 }

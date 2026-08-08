@@ -94,7 +94,7 @@ final class LibraryStore: ObservableObject {
         } else if lower == "deb" {
             let extracted = try DebExtractor.extractDylibs(from: data)
             for item in extracted {
-                try addDylibData(item.data, fileName: item.name, source: fileName)
+                try addDylibData(item.data, fileName: item.name, source: fileName, filter: item.filter)
             }
         } else {
             throw AppError.unsupportedArchive(fileName)
@@ -158,7 +158,7 @@ final class LibraryStore: ObservableObject {
                 let (tempURL, _) = try await URLSession.shared.download(from: url)
                 let extracted = try DebExtractor.extractDylibs(from: Data(contentsOf: tempURL))
                 for item in extracted {
-                    try self.addDylibData(item.data, fileName: item.name, source: package.name)
+                    try self.addDylibData(item.data, fileName: item.name, source: package.name, filter: item.filter)
                 }
                 self.save()
                 self.status = "已从 \(package.name) 提取 \(extracted.count) 个 dylib"
@@ -203,13 +203,22 @@ final class LibraryStore: ObservableObject {
         save()
     }
 
-    private func addDylibData(_ data: Data, fileName: String, source: String) throws {
+    private func addDylibData(
+        _ data: Data,
+        fileName: String,
+        source: String,
+        filter: InjectionFilter? = nil
+    ) throws {
         let cleanName = fileName.hasSuffix(".dylib") ? fileName.sanitizedFileComponent : "\(fileName).dylib".sanitizedFileComponent
         let unique = uniqueFileName(cleanName, in: try pluginsURL())
         let destination = try pluginsURL().appendingPathComponent(unique)
         try data.write(to: destination, options: .atomic)
         var plugin = PluginFile(displayName: String(unique.dropLast(6)), fileName: unique, relativePath: "Plugins/\(unique)", source: source)
         inferFilter(for: &plugin)
+        if let filter, !filter.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            plugin.filterKind = filter.kind
+            plugin.filterValue = filter.value
+        }
         plugins.append(plugin)
         selectedPluginIDs.insert(plugin.id)
     }

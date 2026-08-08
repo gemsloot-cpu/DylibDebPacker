@@ -14,6 +14,17 @@ enum FilterKind: String, Codable, CaseIterable, Identifiable, Equatable {
     }
 }
 
+struct ExtractedDylib {
+    let name: String
+    let data: Data
+    let filter: InjectionFilter?
+}
+
+struct InjectionFilter {
+    let kind: FilterKind
+    let value: String
+}
+
 struct PluginFile: Identifiable, Codable, Hashable {
     var id = UUID()
     var displayName: String
