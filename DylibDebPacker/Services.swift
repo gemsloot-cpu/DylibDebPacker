@@ -242,15 +242,22 @@ final class LibraryStore: ObservableObject {
     }
 
     func deletePlugins(at offsets: IndexSet) {
-        for index in offsets {
-            let plugin = plugins[index]
+        let ids = Set(offsets.map { plugins[$0].id })
+        deletePlugins(ids: ids)
+    }
+
+    func deletePlugins(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let deleting = plugins.filter { ids.contains($0.id) }
+        for plugin in deleting {
             if let url = try? documentsURL().appendingPathComponent(plugin.relativePath) {
                 try? fileManager.removeItem(at: url)
             }
-            selectedPluginIDs.remove(plugin.id)
         }
-        plugins.remove(atOffsets: offsets)
+        selectedPluginIDs.subtract(ids)
+        plugins.removeAll { ids.contains($0.id) }
         save()
+        showStatus("已删除 \(deleting.count) 个插件")
     }
 
     func update(plugin: PluginFile) {

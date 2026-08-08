@@ -253,6 +253,7 @@ struct LibraryView: View {
     @EnvironmentObject private var store: LibraryStore
     @State private var showingDocumentPicker = false
     @State private var selectedDeb: LocalDebPackage?
+    @State private var pluginDeleteIDs: Set<UUID> = []
 
     var body: some View {
         NavigationView {
@@ -309,17 +310,60 @@ struct LibraryView: View {
                     if store.plugins.isEmpty {
                         EmptyHint(title: "还没有插件", subtitle: "先导入 dylib/deb，或从源里下载 deb。")
                     } else {
+                        HStack {
+                            Text("待删除 \(pluginDeleteIDs.count) / \(store.plugins.count)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button {
+                                pluginDeleteIDs = Set(store.plugins.map(\.id))
+                            } label: {
+                                Label("全选", systemImage: "checkmark.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            Button {
+                                pluginDeleteIDs.removeAll()
+                            } label: {
+                                Label("全不选", systemImage: "circle")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
+                        Button(role: .destructive) {
+                            store.deletePlugins(ids: pluginDeleteIDs)
+                            pluginDeleteIDs.removeAll()
+                        } label: {
+                            Label("删除选中插件", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .disabled(pluginDeleteIDs.isEmpty)
+
                         ForEach($store.plugins) { $plugin in
-                            PluginEditorRow(plugin: $plugin)
-                                .onChange(of: plugin) { next in
-                                    store.update(plugin: next)
+                            HStack(alignment: .top, spacing: 10) {
+                                Button {
+                                    togglePluginDelete(plugin)
+                                } label: {
+                                    Image(systemName: pluginDeleteIDs.contains(plugin.id) ? "checkmark.circle.fill" : "circle")
+                                        .imageScale(.large)
+                                        .foregroundStyle(pluginDeleteIDs.contains(plugin.id) ? .red : .secondary)
                                 }
+                                .buttonStyle(.borderless)
+                                .padding(.top, 8)
+
+                                PluginEditorRow(plugin: $plugin)
+                                    .onChange(of: plugin) { next in
+                                        store.update(plugin: next)
+                                    }
+                            }
                         }
                         .onDelete(perform: store.deletePlugins)
                     }
                 }
             }
             .navigationTitle("插件库")
+            .onChange(of: store.plugins) { plugins in
+                pluginDeleteIDs.formIntersection(Set(plugins.map(\.id)))
+            }
             .sheet(isPresented: $showingDocumentPicker) {
                 DylibDocumentPicker { urls in
                     store.importFiles(urls)
@@ -329,6 +373,14 @@ struct LibraryView: View {
             .sheet(item: $selectedDeb) { deb in
                 DebContentsView(deb: deb)
             }
+        }
+    }
+
+    private func togglePluginDelete(_ plugin: PluginFile) {
+        if pluginDeleteIDs.contains(plugin.id) {
+            pluginDeleteIDs.remove(plugin.id)
+        } else {
+            pluginDeleteIDs.insert(plugin.id)
         }
     }
 }
