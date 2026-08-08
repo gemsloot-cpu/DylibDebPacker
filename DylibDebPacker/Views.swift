@@ -15,13 +15,18 @@ struct ContentView: View {
                 .tabItem { Label("打包", systemImage: "archivebox") }
         }
         .tint(.blue)
-        .overlay(alignment: .bottom) {
-            StatusBar(text: store.status, busy: store.isBusy)
+        .safeAreaInset(edge: .top) {
+            if store.isBusy || store.status != "就绪" {
+                StatusToast(text: store.status, busy: store.isBusy)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+            }
         }
     }
 }
 
-struct StatusBar: View {
+struct StatusToast: View {
     let text: String
     let busy: Bool
 
@@ -35,7 +40,9 @@ struct StatusBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.bar)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
     }
 }
 
