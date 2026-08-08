@@ -98,6 +98,9 @@ struct SourcesView: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(source.name).font(.headline)
                                 Text(source.url).font(.caption).foregroundStyle(.secondary)
+                                Text(store.sourceMessages[source.id] ?? "等待刷新")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                             .swipeActions {
                                 Button(role: .destructive) {
@@ -249,6 +252,8 @@ struct LibraryView: View {
             .fileImporter(isPresented: $importing, allowedContentTypes: importTypes, allowsMultipleSelection: true) { result in
                 if case .success(let urls) = result {
                     store.importFiles(urls)
+                } else if case .failure(let error) = result {
+                    store.status = error.localizedDescription
                 }
             }
         }

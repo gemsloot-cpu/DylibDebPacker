@@ -6,6 +6,7 @@ final class LibraryStore: ObservableObject {
     @Published var plugins: [PluginFile] = []
     @Published var sources: [RepoSource] = []
     @Published var repoPackages: [RepoPackage] = []
+    @Published var sourceMessages: [UUID: String] = [:]
     @Published var selectedPluginIDs: Set<UUID> = []
     @Published var settings = PackageSettings()
     @Published var status = "就绪"
@@ -116,6 +117,7 @@ final class LibraryStore: ObservableObject {
     func removeSource(_ source: RepoSource) {
         sources.removeAll { $0.id == source.id }
         repoPackages.removeAll { $0.sourceID == source.id }
+        sourceMessages.removeValue(forKey: source.id)
         save()
     }
 
@@ -124,7 +126,13 @@ final class LibraryStore: ObservableObject {
             await runBusy("刷新源") {
                 var packages: [RepoPackage] = []
                 for source in self.sources {
-                    packages.append(contentsOf: try await RepoClient.fetchPackages(from: source))
+                    do {
+                        let found = try await RepoClient.fetchPackages(from: source)
+                        packages.append(contentsOf: found)
+                        self.sourceMessages[source.id] = found.isEmpty ? "索引为空" : "已读取 \(found.count) 个插件包"
+                    } catch {
+                        self.sourceMessages[source.id] = error.localizedDescription
+                    }
                 }
                 self.repoPackages = packages.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 self.status = "已读取 \(packages.count) 个插件包"
@@ -296,18 +304,65 @@ enum RepoURLParser {
 enum RepoClient {
     static func fetchPackages(from source: RepoSource) async throws -> [RepoPackage] {
         guard let baseURL = URL(string: source.url.ensureTrailingSlash()) else { throw AppError.invalidURL }
-        let packageLists = ["Packages", "Packages.gz"]
+        let packageLists = candidatePackagePaths(baseURL: baseURL)
+        var sawUnsupportedArchive = false
 
-        for name in packageLists {
-            let url = baseURL.appendingPathComponent(name)
-            if let data = try? await fetch(url), !data.isEmpty {
-                let textData = name.hasSuffix(".gz") ? (try? GzipCodec.decompress(data)) ?? data : data
-                if let text = String(data: textData, encoding: .utf8) {
-                    return parsePackages(text, source: source)
+        for path in packageLists {
+            let url = URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appendingPathComponent(path)
+            guard let data = try? await fetch(url), !data.isEmpty else { continue }
+
+            if path.hasSuffix(".xz") || path.hasSuffix(".zst") {
+                sawUnsupportedArchive = true
+                continue
+            }
+
+            let textData: Data
+            if path.hasSuffix(".gz") {
+                guard let decompressed = try? GzipCodec.decompress(data) else { continue }
+                textData = decompressed
+            } else if path.hasSuffix(".bz2") {
+                guard let decompressed = try? Bzip2Codec.decompress(data) else { continue }
+                textData = decompressed
+            } else {
+                textData = data
+            }
+            if let text = String(data: textData, encoding: .utf8) {
+                let packages = parsePackages(text, source: source)
+                if !packages.isEmpty { return packages }
+            }
+        }
+
+        if sawUnsupportedArchive {
+            throw AppError.sourceUnavailable("找到 Packages.xz/zst，但当前版本暂不支持这些压缩格式")
+        }
+        throw AppError.sourceUnavailable("没有找到可解析的 Packages 索引")
+    }
+
+    private static func candidatePackagePaths(baseURL: URL) -> [String] {
+        var paths = [
+            "Packages",
+            "Packages.gz",
+            "Packages.bz2",
+            "Packages.xz",
+            "Packages.zst"
+        ]
+        let distributions = ["iphoneos-arm64", "stable", "current", "release"]
+        let components = ["main", "extras"]
+        let architectures = ["iphoneos-arm64", "iphoneos-arm", "arm64", "all"]
+
+        for distribution in distributions {
+            for component in components {
+                for architecture in architectures {
+                    let prefix = "dists/\(distribution)/\(component)/binary-\(architecture)/Packages"
+                    paths.append(prefix)
+                    paths.append(prefix + ".gz")
+                    paths.append(prefix + ".bz2")
+                    paths.append(prefix + ".xz")
+                    paths.append(prefix + ".zst")
                 }
             }
         }
-        return []
+        return paths
     }
 
     private static func fetch(_ url: URL) async throws -> Data {

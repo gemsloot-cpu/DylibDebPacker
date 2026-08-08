@@ -24,6 +24,19 @@ enum GzipCodec {
     }
 }
 
+enum Bzip2Codec {
+    static func decompress(_ data: Data) throws -> Data {
+        try data.withUnsafeBytes { input in
+            var output: UnsafeMutablePointer<UInt8>?
+            var outputLen = 0
+            let result = bzip2_decompress(input.bindMemory(to: UInt8.self).baseAddress, data.count, &output, &outputLen)
+            guard result == 0, let output else { throw AppError.zlibFailed(Int32(result)) }
+            defer { bzip2_free(output) }
+            return Data(bytes: output, count: outputLen)
+        }
+    }
+}
+
 struct ArEntry {
     let name: String
     let data: Data
@@ -49,6 +62,9 @@ enum ArArchive {
             let body = data.subdata(in: bodyStart..<(bodyStart + size))
             entries.append(ArEntry(name: name, data: body))
             offset = bodyStart + size + (size % 2)
+        }
+        guard !entries.isEmpty else {
+            throw AppError.unsupportedArchive("deb ar 内容为空或损坏")
         }
         return entries
     }
@@ -246,14 +262,17 @@ enum DebBuilder {
 enum DebExtractor {
     static func extractDylibs(from debURL: URL) throws -> [(name: String, data: Data)] {
         let entries = try ArArchive.read(Data(contentsOf: debURL))
-        guard let payload = entries.first(where: { $0.name == "data.tar.gz" || $0.name == "data.tar" }) else {
+        guard let payload = entries.first(where: {
+            let name = $0.name.lowercased()
+            return name == "data.tar.gz" || name == "data.tar"
+        }) else {
             let names = entries.map(\.name).joined(separator: ", ")
-            if names.contains("data.tar.xz") { throw AppError.unsupportedArchive("data.tar.xz") }
-            if names.contains("data.tar.zst") { throw AppError.unsupportedArchive("data.tar.zst") }
+            if names.lowercased().contains("data.tar.xz") { throw AppError.unsupportedArchive("data.tar.xz") }
+            if names.lowercased().contains("data.tar.zst") { throw AppError.unsupportedArchive("data.tar.zst") }
             throw AppError.missingPayload
         }
 
-        let tarData = payload.name.hasSuffix(".gz") ? try GzipCodec.decompress(payload.data) : payload.data
+        let tarData = payload.name.lowercased().hasSuffix(".gz") ? try GzipCodec.decompress(payload.data) : payload.data
         let dylibs = TarArchive.files(from: tarData)
             .filter { $0.path.hasSuffix(".dylib") }
             .map { (URL(fileURLWithPath: $0.path).lastPathComponent, $0.data) }

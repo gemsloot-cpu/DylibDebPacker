@@ -80,6 +80,7 @@ enum AppError: LocalizedError {
     case noPluginsSelected
     case missingFilter(String)
     case zlibFailed(Int32)
+    case sourceUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -97,6 +98,8 @@ enum AppError: LocalizedError {
             return "\(name) 缺少注入目标"
         case .zlibFailed(let code):
             return "gzip 处理失败：\(code)"
+        case .sourceUnavailable(let detail):
+            return "源索引不可用：\(detail)"
         }
     }
 }

@@ -15,6 +15,8 @@
 		111111111111111111111106 /* GzipShim.c in Sources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111006 /* GzipShim.c */; };
 		111111111111111111111107 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 111111111111111111111012 /* libz.tbd */; };
 		111111111111111111111108 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111013 /* Assets.xcassets */; };
+		111111111111111111111109 /* Bzip2Shim.c in Sources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111014 /* Bzip2Shim.c */; };
+		111111111111111111111110 /* libbz2.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 111111111111111111111016 /* libbz2.tbd */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +32,9 @@
 		111111111111111111111010 /* DylibDebPacker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DylibDebPacker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		111111111111111111111012 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
 		111111111111111111111013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		111111111111111111111014 /* Bzip2Shim.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = Bzip2Shim.c; sourceTree = "<group>"; };
+		111111111111111111111015 /* Bzip2Shim.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Bzip2Shim.h; sourceTree = "<group>"; };
+		111111111111111111111016 /* libbz2.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libbz2.tbd; path = usr/lib/libbz2.tbd; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +43,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				111111111111111111111107 /* libz.tbd in Frameworks */,
+				111111111111111111111110 /* libbz2.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -66,6 +72,8 @@
 				111111111111111111111008 /* DylibDebPacker-Bridging-Header.h */,
 				111111111111111111111009 /* Info.plist */,
 				111111111111111111111013 /* Assets.xcassets */,
+				111111111111111111111014 /* Bzip2Shim.c */,
+				111111111111111111111015 /* Bzip2Shim.h */,
 			);
 			path = DylibDebPacker;
 			sourceTree = "<group>";
@@ -74,6 +82,7 @@
 			isa = PBXGroup;
 			children = (
 				111111111111111111111012 /* libz.tbd */,
+				111111111111111111111016 /* libbz2.tbd */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -161,6 +170,7 @@
 				111111111111111111111104 /* Services.swift in Sources */,
 				111111111111111111111105 /* Views.swift in Sources */,
 				111111111111111111111106 /* GzipShim.c in Sources */,
+				111111111111111111111109 /* Bzip2Shim.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
