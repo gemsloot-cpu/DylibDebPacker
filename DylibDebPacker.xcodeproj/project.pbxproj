@@ -14,6 +14,7 @@
 		111111111111111111111105 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111005 /* Views.swift */; };
 		111111111111111111111106 /* GzipShim.c in Sources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111006 /* GzipShim.c */; };
 		111111111111111111111107 /* libz.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 111111111111111111111012 /* libz.tbd */; };
+		111111111111111111111108 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111013 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +29,7 @@
 		111111111111111111111009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		111111111111111111111010 /* DylibDebPacker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DylibDebPacker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		111111111111111111111012 /* libz.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libz.tbd; path = usr/lib/libz.tbd; sourceTree = SDKROOT; };
+		111111111111111111111013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +65,7 @@
 				111111111111111111111007 /* GzipShim.h */,
 				111111111111111111111008 /* DylibDebPacker-Bridging-Header.h */,
 				111111111111111111111009 /* Info.plist */,
+				111111111111111111111013 /* Assets.xcassets */,
 			);
 			path = DylibDebPacker;
 			sourceTree = "<group>";
@@ -141,6 +144,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				111111111111111111111108 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -280,6 +284,7 @@
 		111111111111111111111903 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -302,6 +307,7 @@
 		111111111111111111111904 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";

@@ -7,9 +7,11 @@ An on-device TrollStore utility for collecting jailbreak dylibs, extracting dyli
 - Import local `.dylib` and `.deb` files with the iOS document picker.
 - Extract `.dylib` files from `data.tar` and `data.tar.gz` deb payloads.
 - Add simple APT jailbreak repositories and read `Packages` / `Packages.gz`.
+- Batch-import jailbreak repositories from clipboard text, including copied APT source lines.
 - Download debs from a source, extract dylibs, and combine them with your own plugins.
 - Generate a rootless deb under `/var/jb/Library/MobileSubstrate/DynamicLibraries`.
 - Export the generated `.deb` from the iOS share sheet.
+- Includes a real AppIcon for TrollStore home-screen installs.
 
 ## Build IPA
 

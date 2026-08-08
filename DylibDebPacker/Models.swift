@@ -9,7 +9,7 @@ enum FilterKind: String, Codable, CaseIterable, Identifiable, Equatable {
     var label: String {
         switch self {
         case .bundle: return "Bundle ID"
-        case .executable: return "Executable"
+        case .executable: return "可执行名"
         }
     }
 }
@@ -59,7 +59,7 @@ struct RepoPackage: Identifiable, Codable, Hashable {
 
 struct PackageSettings: Codable, Equatable {
     var packageID = "com.local.custom-dylibs"
-    var name = "Custom Dylibs"
+    var name = "自选 dylib 插件包"
     var version = "1.0.0"
     var architecture = "iphoneos-arm64"
     var rootless = true

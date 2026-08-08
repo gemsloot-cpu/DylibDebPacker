@@ -8,7 +8,7 @@ final class LibraryStore: ObservableObject {
     @Published var repoPackages: [RepoPackage] = []
     @Published var selectedPluginIDs: Set<UUID> = []
     @Published var settings = PackageSettings()
-    @Published var status = "Ready"
+    @Published var status = "就绪"
     @Published var generatedDebURL: URL?
     @Published var isBusy = false
 
@@ -62,12 +62,12 @@ final class LibraryStore: ObservableObject {
 
     func importFiles(_ urls: [URL]) {
         Task {
-            await runBusy("Importing") {
+            await runBusy("导入文件") {
                 for url in urls {
                     try await self.importFile(url)
                 }
                 self.save()
-                self.status = "Imported \(urls.count) file(s)"
+                self.status = "已导入 \(urls.count) 个文件"
             }
         }
     }
@@ -90,20 +90,27 @@ final class LibraryStore: ObservableObject {
     }
 
     func addSource(urlText: String) {
-        guard var components = URLComponents(string: urlText.trimmingCharacters(in: .whitespacesAndNewlines)),
-              components.scheme != nil,
-              let url = components.url else {
+        let count = addSources(from: urlText, refresh: true)
+        if count == 0 {
             status = AppError.invalidURL.localizedDescription
-            return
         }
-        components.path = components.path.ensureTrailingSlash()
-        let normalized = (components.url ?? url).absoluteString.ensureTrailingSlash()
-        let name = URL(string: normalized)?.host ?? "Source"
-        if !sources.contains(where: { $0.url == normalized }) {
+    }
+
+    @discardableResult
+    func addSources(from text: String, refresh: Bool) -> Int {
+        let urls = RepoURLParser.extractRepoURLs(from: text)
+        var added = 0
+        for normalized in urls where !sources.contains(where: { $0.url == normalized }) {
+            let name = URL(string: normalized)?.host ?? "Source"
             sources.append(RepoSource(name: name, url: normalized))
-            save()
+            added += 1
         }
-        refreshSources()
+        if added > 0 {
+            save()
+            status = "已添加 \(added) 个源"
+            if refresh { refreshSources() }
+        }
+        return added
     }
 
     func removeSource(_ source: RepoSource) {
@@ -114,20 +121,20 @@ final class LibraryStore: ObservableObject {
 
     func refreshSources() {
         Task {
-            await runBusy("Refreshing sources") {
+            await runBusy("刷新源") {
                 var packages: [RepoPackage] = []
                 for source in self.sources {
                     packages.append(contentsOf: try await RepoClient.fetchPackages(from: source))
                 }
                 self.repoPackages = packages.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                self.status = "Loaded \(packages.count) package(s)"
+                self.status = "已读取 \(packages.count) 个插件包"
             }
         }
     }
 
     func download(_ package: RepoPackage) {
         Task {
-            await runBusy("Downloading \(package.name)") {
+            await runBusy("下载 \(package.name)") {
                 guard let url = package.downloadURL else { throw AppError.invalidURL }
                 let (tempURL, _) = try await URLSession.shared.download(from: url)
                 let extracted = try DebExtractor.extractDylibs(from: tempURL)
@@ -135,18 +142,18 @@ final class LibraryStore: ObservableObject {
                     try self.addDylibData(item.data, fileName: item.name, source: package.name)
                 }
                 self.save()
-                self.status = "Extracted \(extracted.count) dylib(s) from \(package.name)"
+                self.status = "已从 \(package.name) 提取 \(extracted.count) 个 dylib"
             }
         }
     }
 
     func buildDeb() {
         Task {
-            await runBusy("Building deb") {
+            await runBusy("打包 deb") {
                 let output = try DebBuilder.build(plugins: self.selectedPlugins, baseURL: try self.documentsURL(), settings: self.settings)
                 self.generatedDebURL = output
                 self.save()
-                self.status = "Built \(output.lastPathComponent)"
+                self.status = "已生成 \(output.lastPathComponent)"
             }
         }
     }
@@ -238,6 +245,51 @@ final class LibraryStore: ObservableObject {
             status = error.localizedDescription
         }
         isBusy = false
+    }
+}
+
+enum RepoURLParser {
+    static func extractRepoURLs(from text: String) -> [String] {
+        guard let expression = try? NSRegularExpression(pattern: #"https?://[^\s"'<>]+"#, options: [.caseInsensitive]) else {
+            return []
+        }
+
+        let nsText = text as NSString
+        let matches = expression.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for match in matches {
+            let raw = nsText.substring(with: match.range)
+            if let normalized = normalize(raw), !seen.contains(normalized) {
+                seen.insert(normalized)
+                result.append(normalized)
+            }
+        }
+        return result
+    }
+
+    private static func normalize(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: " \n\r\t,;，；。)]}"))
+        guard var components = URLComponents(string: trimmed),
+              components.scheme == "http" || components.scheme == "https",
+              components.host != nil else {
+            return nil
+        }
+
+        var path = components.path
+        if path.hasSuffix("/Packages.gz") {
+            path = String(path.dropLast("/Packages.gz".count))
+        } else if path.hasSuffix("/Packages") {
+            path = String(path.dropLast("/Packages".count))
+        } else if path.hasSuffix("/Release") {
+            path = String(path.dropLast("/Release".count))
+        }
+        if path.isEmpty { path = "/" }
+        components.path = path.ensureTrailingSlash()
+        components.query = nil
+        components.fragment = nil
+        return components.url?.absoluteString.ensureTrailingSlash()
     }
 }
 
