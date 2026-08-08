@@ -42,7 +42,7 @@ struct SourcesView: View {
     @State private var sourceURL = ""
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             List {
                 Section("Add Source") {
                     HStack {
@@ -123,7 +123,7 @@ struct LibraryView: View {
     @State private var importing = false
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             List {
                 Section {
                     Button {
@@ -136,7 +136,7 @@ struct LibraryView: View {
                 Section("Plugins") {
                     ForEach($store.plugins) { $plugin in
                         PluginEditorRow(plugin: $plugin)
-                            .onChange(of: plugin) { _, next in
+                            .onChange(of: plugin) { next in
                                 store.update(plugin: next)
                             }
                     }
@@ -194,7 +194,7 @@ struct PackageView: View {
     @State private var showingShare = false
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             Form {
                 Section("Control") {
                     TextField("Package ID", text: $store.settings.packageID)
@@ -208,7 +208,7 @@ struct PackageView: View {
                     TextField("Maintainer", text: $store.settings.maintainer)
                     Toggle("Rootless /var/jb layout", isOn: $store.settings.rootless)
                 }
-                .onChange(of: store.settings) { _, _ in store.save() }
+                .onChange(of: store.settings) { _ in store.save() }
 
                 Section("Dylibs") {
                     ForEach(store.plugins) { plugin in
