@@ -62,31 +62,42 @@ final class LibraryStore: ObservableObject {
     }
 
     func importFiles(_ urls: [URL]) {
+        // 注意：fileImporter 返回的 URL 只在 completion handler 执行期间有效，
+        // 系统在回调返回后会清理临时文件，所以必须同步读取内容，
+        // 不能放进下面的 Task 里延迟访问（否则会报“无权限/文件不存在”）。
+        var items: [(fileName: String, data: Data)] = []
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                status = "无法读取 \(url.lastPathComponent)"
+                return
+            }
+            items.append((url.lastPathComponent, data))
+        }
+
         Task {
             await runBusy("导入文件") {
-                for url in urls {
-                    try await self.importFile(url)
+                for item in items {
+                    try await self.importFileData(item.data, fileName: item.fileName)
                 }
                 self.save()
-                self.status = "已导入 \(urls.count) 个文件"
+                self.status = "已导入 \(items.count) 个文件"
             }
         }
     }
 
-    func importFile(_ url: URL) async throws {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-        let lower = url.pathExtension.lowercased()
+    private func importFileData(_ data: Data, fileName: String) async throws {
+        let lower = (fileName as NSString).pathExtension.lowercased()
         if lower == "dylib" {
-            try copyDylib(from: url, source: "Imported")
+            try addDylibData(data, fileName: fileName, source: "Imported")
         } else if lower == "deb" {
-            let extracted = try DebExtractor.extractDylibs(from: url)
+            let extracted = try DebExtractor.extractDylibs(from: data)
             for item in extracted {
-                try addDylibData(item.data, fileName: item.name, source: url.lastPathComponent)
+                try addDylibData(item.data, fileName: item.name, source: fileName)
             }
         } else {
-            throw AppError.unsupportedArchive(url.lastPathComponent)
+            throw AppError.unsupportedArchive(fileName)
         }
     }
 
@@ -145,7 +156,7 @@ final class LibraryStore: ObservableObject {
             await runBusy("下载 \(package.name)") {
                 guard let url = package.downloadURL else { throw AppError.invalidURL }
                 let (tempURL, _) = try await URLSession.shared.download(from: url)
-                let extracted = try DebExtractor.extractDylibs(from: tempURL)
+                let extracted = try DebExtractor.extractDylibs(from: Data(contentsOf: tempURL))
                 for item in extracted {
                     try self.addDylibData(item.data, fileName: item.name, source: package.name)
                 }
@@ -190,10 +201,6 @@ final class LibraryStore: ObservableObject {
         guard let index = plugins.firstIndex(where: { $0.id == plugin.id }) else { return }
         plugins[index] = plugin
         save()
-    }
-
-    private func copyDylib(from url: URL, source: String) throws {
-        try addDylibData(Data(contentsOf: url), fileName: url.lastPathComponent, source: source)
     }
 
     private func addDylibData(_ data: Data, fileName: String, source: String) throws {

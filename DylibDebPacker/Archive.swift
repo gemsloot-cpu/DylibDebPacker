@@ -260,8 +260,8 @@ enum DebBuilder {
 }
 
 enum DebExtractor {
-    static func extractDylibs(from debURL: URL) throws -> [(name: String, data: Data)] {
-        let entries = try ArArchive.read(Data(contentsOf: debURL))
+    static func extractDylibs(from data: Data) throws -> [(name: String, data: Data)] {
+        let entries = try ArArchive.read(data)
         guard let payload = entries.first(where: {
             let name = $0.name.lowercased()
             return name == "data.tar.gz" || name == "data.tar"
