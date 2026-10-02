@@ -1,5 +1,8 @@
 # Dylib Deb Packer
 
+
+### THIS FORK SIMPLY TRANSLATED THE ENTIRE UI TO ENGLISH
+
 An on-device TrollStore utility for collecting jailbreak dylibs, extracting dylibs from deb packages, and building a custom rootless `iphoneos-arm64` deb.
 
 ## Features
