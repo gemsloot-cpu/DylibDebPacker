@@ -43,13 +43,15 @@ jobs:
           <plist version="1.0">
           <dict>
               <key>method</key>
-              <string>ad-hoc</string>
+              <string>release-testing</string>
               <key>signingStyle</key>
               <string>automatic</string>
               <key>stripSwiftSymbols</key>
               <true/>
               <key>thinning</key>
               <string>&lt;none&gt;</string>
+              <key>teamID</key>
+              <string>0000000000</string>
           </dict>
           </plist>
           EOF
