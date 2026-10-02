@@ -35,28 +35,13 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             clean archive
 
-      - name: Create export options plist
-        run: |
-          cat > exportOptions.plist <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>signingStyle</key>
-              <string>automatic</string>
-              <key>stripSwiftSymbols</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-
-      - name: Export IPA
+      - name: Export IPA with default options
         run: |
           xcodebuild \
             -exportArchive \
             -archivePath "build/${APP_NAME}.xcarchive" \
-            -exportOptionsPlist exportOptions.plist \
-            -exportPath build/output
+            -exportPath build/output \
+            -allowProvisioningUpdates
 
       - name: Find IPA
         id: ipa
