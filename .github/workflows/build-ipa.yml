@@ -1,43 +1,109 @@
 name: Build IPA
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  APP_NAME: DylibDebPacker
+  SCHEME: DylibDebPacker
+  PROJECT_FILE: DylibDebPacker.xcodeproj
 
 jobs:
-  build:
-    runs-on: macos-15
+  build-ipa:
+    runs-on: macos-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Build unsigned app
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project DylibDebPacker.xcodeproj \
-            -scheme DylibDebPacker \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build
-
-      - name: Package IPA
-        run: |
-          set -euo pipefail
-          APP="build/DerivedData/Build/Products/Release-iphoneos/DylibDebPacker.app"
-          test -d "$APP"
-          rm -rf build/Payload
-          mkdir -p build/Payload
-          cp -R "$APP" build/Payload/
-          (cd build && zip -qry DylibDebPacker.ipa Payload)
-          ls -lh build/DylibDebPacker.ipa
-
-      - uses: actions/upload-artifact@v4
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
         with:
-          name: DylibDebPacker-ipa
-          path: build/DylibDebPacker.ipa
-          if-no-files-found: error
+          xcode-version: latest-stable
+
+      - name: Build app
+        run: |
+          xcodebuild \
+            -project "$PROJECT_FILE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -archivePath "build/${APP_NAME}.xcarchive" \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            clean archive
+
+      - name: Create export options plist
+        run: |
+          cat > exportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>signingStyle</key>
+              <string>automatic</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>thinning</key>
+              <string>&lt;none&gt;</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA
+        run: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath "build/${APP_NAME}.xcarchive" \
+            -exportOptionsPlist exportOptions.plist \
+            -exportPath build/output
+
+      - name: Find IPA
+        id: ipa
+        run: |
+          IPA_PATH=$(find build/output -name "*.ipa" -type f)
+          echo "ipa_path=$IPA_PATH" >> $GITHUB_OUTPUT
+          echo "Found IPA: $IPA_PATH"
+
+      - name: Get commit info
+        id: commit
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "message=$(git log -1 --pretty=%B)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DylibDebPacker-${{ steps.commit.outputs.sha_short }}
+          path: ${{ steps.ipa.outputs.ipa_path }}
+          retention-days: 30
+
+      - name: Delete old latest release
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create/Update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.ipa.outputs.ipa_path }}
+          tag_name: latest
+          name: Latest Build
+          body: |
+            **Latest Build**
+            
+            **Commit:** ${{ steps.commit.outputs.sha_short }}
+            **Message:** ${{ steps.commit.outputs.message }}
+            **Built:** ${{ steps.commit.outputs.timestamp }}
+            
+            Download the IPA and sign it with your device using TrollStore or similar tools.
+          prerelease: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
