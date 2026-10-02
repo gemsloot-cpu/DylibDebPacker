@@ -8,11 +8,11 @@ struct ContentView: View {
     var body: some View {
         TabView {
             SourcesView()
-                .tabItem { Label("源", systemImage: "tray.and.arrow.down") }
+                .tabItem { Label("Sources", systemImage: "tray.and.arrow.down") }
             LibraryView()
-                .tabItem { Label("插件", systemImage: "shippingbox") }
+                .tabItem { Label("Plugins", systemImage: "shippingbox") }
             PackageView()
-                .tabItem { Label("打包", systemImage: "archivebox") }
+                .tabItem { Label("Package", systemImage: "archivebox") }
         }
         .tint(.blue)
         .safeAreaInset(edge: .top) {
@@ -34,7 +34,7 @@ struct ContentView: View {
                         for: nil
                     )
                 } label: {
-                    Label("收起键盘", systemImage: "keyboard.chevron.compact.down")
+                    Label("Hide keyboard", systemImage: "keyboard.chevron.compact.down")
                 }
             }
         }
@@ -86,20 +86,20 @@ struct SourcesView: View {
                     Button {
                         pasteSourcesFromClipboard()
                     } label: {
-                        Label("从剪贴板批量导入源", systemImage: "doc.on.clipboard")
+                        Label("Import sources from clipboard", systemImage: "doc.on.clipboard")
                     }
 
                     Button {
                         batchText = UIPasteboard.general.string ?? ""
                         showingBatchPaste = true
                     } label: {
-                        Label("打开批量粘贴框", systemImage: "text.badge.plus")
+                        Label("Open bulk paste box", systemImage: "text.badge.plus")
                     }
                 } footer: {
-                    Text("支持整段文本、APT 行、Packages 链接；会自动识别里面所有 http/https 源地址。")
+                    Text("Supports full text, APT lines, and Packages links; automatically detects all http/https source URLs inside.")
                 }
 
-                Section("手动添加") {
+                Section("Add manually") {
                     HStack {
                         TextField("https://repo.example.com/", text: $sourceURL)
                             .textInputAutocapitalization(.never)
@@ -117,15 +117,15 @@ struct SourcesView: View {
                     }
                 }
 
-                Section("已添加源") {
+                Section("Added sources") {
                     if store.sources.isEmpty {
-                        EmptyHint(title: "还没有源", subtitle: "复制多个越狱源链接后点上面的剪贴板按钮。")
+                        EmptyHint(title: "No sources yet", subtitle: "Copy multiple jailbreak repo URLs and tap the clipboard button above.")
                     } else {
                         ForEach(store.sources) { source in
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(source.name).font(.headline)
                                 Text(source.url).font(.caption).foregroundStyle(.secondary)
-                                Text(store.sourceMessages[source.id] ?? "等待刷新")
+                                Text(store.sourceMessages[source.id] ?? "Waiting to refresh")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -133,16 +133,16 @@ struct SourcesView: View {
                                 Button(role: .destructive) {
                                     store.removeSource(source)
                                 } label: {
-                                    Label("删除", systemImage: "trash")
+                                    Label("Delete", systemImage: "trash")
                                 }
                             }
                         }
                     }
                 }
 
-                Section("源内插件包") {
+                Section("Packages in sources") {
                     if store.repoPackages.isEmpty {
-                        EmptyHint(title: "暂无插件包", subtitle: "添加源后点右上角刷新。")
+                        EmptyHint(title: "No packages yet", subtitle: "Add a source and tap refresh in the top-right.")
                     } else {
                         ForEach(filteredPackages) { package in
                             PackageDownloadRow(package: package) {
@@ -155,9 +155,9 @@ struct SourcesView: View {
             .searchable(
                 text: $packageSearch,
                 placement: .navigationBarDrawer(displayMode: .always),
-                prompt: "搜索插件名、包名或源"
+                prompt: "Search package name, package ID, or source"
             )
-            .navigationTitle("越狱源")
+            .navigationTitle("Jailbreak Sources")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -178,11 +178,11 @@ struct SourcesView: View {
 
     private func pasteSourcesFromClipboard() {
         guard let text = UIPasteboard.general.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            store.showStatus("剪贴板没有文本", duration: 4)
+            store.showStatus("Clipboard is empty", duration: 4)
             return
         }
         let count = store.addSources(from: text, refresh: true)
-        if count == 0 { store.showStatus("剪贴板里没有识别到源链接", duration: 4) }
+        if count == 0 { store.showStatus("No source URLs were detected in the clipboard", duration: 4) }
     }
 }
 
@@ -201,19 +201,19 @@ struct BatchPasteView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 Button(action: onImport) {
-                    Label("导入识别到的源", systemImage: "tray.and.arrow.down.fill")
+                    Label("Import detected sources", systemImage: "tray.and.arrow.down.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
             }
             .padding()
-            .navigationTitle("批量粘贴源")
+            .navigationTitle("Bulk paste sources")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("粘贴") { text = UIPasteboard.general.string ?? text }
+                    Button("Paste") { text = UIPasteboard.general.string ?? text }
                 }
             }
         }
@@ -262,15 +262,15 @@ struct LibraryView: View {
                     Button {
                         showingDocumentPicker = true
                     } label: {
-                        Label("导入 dylib 或 deb", systemImage: "doc.badge.plus")
+                        Label("Import dylib or deb", systemImage: "doc.badge.plus")
                     }
                 } footer: {
-                    Text("导入 deb 会先保存原包；点击下方 deb 后，再选择需要提取的 dylib。")
+                    Text("Importing a deb saves the original package first; tap a deb below, then select the dylib to extract.")
                 }
 
-                Section("已下载 deb") {
+                Section("Downloaded debs") {
                     if store.downloadedDebs.isEmpty {
-                        EmptyHint(title: "还没有 deb", subtitle: "从越狱源下载，或导入本地 deb。")
+                        EmptyHint(title: "No debs yet", subtitle: "Download from jailbreak sources or import a local deb.")
                     } else {
                         ForEach(store.downloadedDebs) { deb in
                             Button {
@@ -299,32 +299,32 @@ struct LibraryView: View {
                                 Button(role: .destructive) {
                                     store.deleteDeb(deb)
                                 } label: {
-                                    Label("删除", systemImage: "trash")
+                                    Label("Delete", systemImage: "trash")
                                 }
                             }
                         }
                     }
                 }
 
-                Section("插件库") {
+                Section("Plugin library") {
                     if store.plugins.isEmpty {
-                        EmptyHint(title: "还没有插件", subtitle: "先导入 dylib/deb，或从源里下载 deb。")
+                        EmptyHint(title: "No plugins yet", subtitle: "Import a dylib/deb first, or download a deb from a source.")
                     } else {
                         HStack {
-                            Text("待删除 \(pluginDeleteIDs.count) / \(store.plugins.count)")
+                            Text("Selected for deletion \(pluginDeleteIDs.count) / \(store.plugins.count)")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button {
                                 pluginDeleteIDs = Set(store.plugins.map(\.id))
                             } label: {
-                                Label("全选", systemImage: "checkmark.circle")
+                                Label("Select all", systemImage: "checkmark.circle")
                             }
                             .buttonStyle(.borderless)
                             Button {
                                 pluginDeleteIDs.removeAll()
                             } label: {
-                                Label("全不选", systemImage: "circle")
+                                Label("Deselect all", systemImage: "circle")
                             }
                             .buttonStyle(.borderless)
                         }
@@ -333,7 +333,7 @@ struct LibraryView: View {
                             store.deletePlugins(ids: pluginDeleteIDs)
                             pluginDeleteIDs.removeAll()
                         } label: {
-                            Label("删除选中插件", systemImage: "trash")
+                            Label("Delete selected plugins", systemImage: "trash")
                                 .frame(maxWidth: .infinity)
                         }
                         .disabled(pluginDeleteIDs.isEmpty)
@@ -360,7 +360,7 @@ struct LibraryView: View {
                     }
                 }
             }
-            .navigationTitle("插件库")
+            .navigationTitle("Plugin Library")
             .onChange(of: store.plugins) { plugins in
                 pluginDeleteIDs.formIntersection(Set(plugins.map(\.id)))
             }
@@ -400,32 +400,32 @@ struct DebContentsView: View {
             List {
                 Section {
                     HStack {
-                        Text("已选 \(selectedDylibIDs.count) / \(dylibs.count)")
+                        Text("Selected \(selectedDylibIDs.count) / \(dylibs.count)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button {
                             selectedDylibIDs = Set(dylibs.map(\.id))
                         } label: {
-                            Label("全选", systemImage: "checkmark.circle")
+                            Label("Select all", systemImage: "checkmark.circle")
                         }
                         .buttonStyle(.borderless)
                         Button {
                             selectedDylibIDs.removeAll()
                         } label: {
-                            Label("全不选", systemImage: "circle")
+                            Label("Deselect all", systemImage: "circle")
                         }
                         .buttonStyle(.borderless)
                     }
                 }
 
-                Section("deb 内的 dylib") {
+                Section("Dylibs in deb") {
                     if isLoading {
-                        ProgressView("正在读取 deb…")
+                        ProgressView("Reading deb…")
                     } else if !errorMessage.isEmpty {
-                        EmptyHint(title: "读取失败", subtitle: errorMessage)
+                        EmptyHint(title: "Read failed", subtitle: errorMessage)
                     } else if dylibs.isEmpty {
-                        EmptyHint(title: "没有找到 dylib", subtitle: "这个 deb 可能不是注入插件包。")
+                        EmptyHint(title: "No dylib found", subtitle: "This deb may not be an injection plugin package.")
                     } else {
                         ForEach(dylibs) { dylib in
                             Button {
@@ -441,7 +441,7 @@ struct DebContentsView: View {
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         } else {
-                                            Text("缺少注入目标")
+                                            Text("Missing injection target")
                                                 .font(.caption)
                                                 .foregroundStyle(.red)
                                         }
@@ -457,7 +457,7 @@ struct DebContentsView: View {
             .navigationTitle(deb.displayName)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -465,7 +465,7 @@ struct DebContentsView: View {
                         store.saveExtractedDylibs(selected, from: deb)
                         dismiss()
                     } label: {
-                        Label("保存插件", systemImage: "square.and.arrow.down")
+                        Label("Save plugins", systemImage: "square.and.arrow.down")
                     }
                     .disabled(selectedDylibIDs.isEmpty || isLoading || !errorMessage.isEmpty)
                 }
@@ -545,7 +545,7 @@ struct PluginEditorRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            Picker("注入目标", selection: $plugin.filterKind) {
+            Picker("Injection target", selection: $plugin.filterKind) {
                 ForEach(FilterKind.allCases) { kind in
                     Text(kind.label).tag(kind)
                 }
@@ -569,33 +569,33 @@ struct PackageView: View {
     var body: some View {
         NavigationView {
             Form {
-                Section("输出信息") {
-                    TextField("名称", text: $store.settings.name)
-                    TextField("版本", text: $store.settings.version)
+                Section("Output information") {
+                    TextField("Name", text: $store.settings.name)
+                    TextField("Version", text: $store.settings.version)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
                 .onChange(of: store.settings) { _ in store.save() }
 
-                Section("插件选择") {
+                Section("Plugin selection") {
                     if store.plugins.isEmpty {
-                        EmptyHint(title: "没有可打包插件", subtitle: "去插件库导入，或从源里下载 deb 提取。")
+                        EmptyHint(title: "No plugins available to package", subtitle: "Go to the plugin library to import or download a deb for extraction.")
                     } else {
                         HStack {
-                            Text("已选 \(store.selectedPlugins.count) / \(store.plugins.count)")
+                            Text("Selected \(store.selectedPlugins.count) / \(store.plugins.count)")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button {
                                 store.selectAllPlugins()
                             } label: {
-                                Label("全选", systemImage: "checkmark.circle")
+                                Label("Select all", systemImage: "checkmark.circle")
                             }
                             .buttonStyle(.borderless)
                             Button {
                                 store.clearPluginSelection()
                             } label: {
-                                Label("全不选", systemImage: "circle")
+                                Label("Deselect all", systemImage: "circle")
                             }
                             .buttonStyle(.borderless)
                         }
@@ -609,7 +609,7 @@ struct PackageView: View {
                                         .foregroundStyle(store.selectedPluginIDs.contains(plugin.id) ? .green : .secondary)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(plugin.displayName)
-                                        Text(plugin.filterValue.isEmpty ? "缺少注入目标" : plugin.filterValue)
+                                        Text(plugin.filterValue.isEmpty ? "Missing injection target" : plugin.filterValue)
                                             .font(.caption)
                                             .foregroundStyle(plugin.filterValue.isEmpty ? .red : .secondary)
                                     }
@@ -622,15 +622,15 @@ struct PackageView: View {
                 }
 
                 Section {
-                    DisclosureGroup("高级设置", isExpanded: $showAdvanced) {
+                    DisclosureGroup("Advanced settings", isExpanded: $showAdvanced) {
                         TextField("Package ID", text: $store.settings.packageID)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                        TextField("架构", text: $store.settings.architecture)
+                        TextField("Architecture", text: $store.settings.architecture)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                        TextField("维护者", text: $store.settings.maintainer)
-                        Toggle("Rootless /var/jb 路径", isOn: $store.settings.rootless)
+                        TextField("Maintainer", text: $store.settings.maintainer)
+                        Toggle("Rootless /var/jb path", isOn: $store.settings.rootless)
                     }
                 }
                 .onChange(of: store.settings) { _ in store.save() }
@@ -639,7 +639,7 @@ struct PackageView: View {
                     Button {
                         store.buildDeb()
                     } label: {
-                        Label("生成 deb", systemImage: "hammer.fill")
+                        Label("Build deb", systemImage: "hammer.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -649,12 +649,12 @@ struct PackageView: View {
                         Button {
                             showingShare = true
                         } label: {
-                            Label("导出 \(url.lastPathComponent)", systemImage: "square.and.arrow.up")
+                            Label("Export \(url.lastPathComponent)", systemImage: "square.and.arrow.up")
                         }
                     }
                 }
             }
-            .navigationTitle("打包 deb")
+            .navigationTitle("Package deb")
             .sheet(isPresented: $showingShare) {
                 if let url = store.generatedDebURL {
                     ShareSheet(items: [url])
